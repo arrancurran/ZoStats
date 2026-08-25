@@ -89,3 +89,15 @@ test("localizes the collapsible header and sidenav through attributes", () => {
   assert.match(ftl, /zostats-refresh-button\s*=\s*\n\s+\.tooltiptext\s*=\s*Refresh citation statistics/);
   assert.doesNotMatch(ftl, /zostats-item-pane-header\s*=\s*Metrics/);
 });
+
+test("persistent cache pruning removes expired and least-recent entries", () => {
+  const api = loadTestAPI();
+  const entries = [
+    ["expired", { expires: 999, lastAccessed: 999, value: { paper: {} } }],
+    ["recent", { expires: 2000, lastAccessed: 900, value: { paper: {} } }],
+    ["older", { expires: 2000, lastAccessed: 500, value: { paper: {} } }],
+    ["oldest", { expires: 2000, lastAccessed: 100, value: { paper: {} } }]
+  ];
+  const retained = api.selectCacheEntries(entries, 1000, 2);
+  assert.deepEqual(retained.map(([key]) => key), ["recent", "older"]);
+});

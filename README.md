@@ -12,15 +12,19 @@ paper to see its citation history and the works that cite it.
 - Top citing venues and fields of study
 - Links to Semantic Scholar and an open-access PDF when available
 - DOI, PMID, and arXiv matching, with exact-title matching as a fallback
-- Thirty-minute in-memory cache and a manual refresh button
+- Seven-day persistent cache (up to 100 papers) and a manual refresh button
 
 Citation data comes from the Semantic Scholar Academic Graph API. For papers
 with more than 1,000 citations, the total count remains authoritative but the
 yearly graph and citing-work analysis are limited to the first 1,000 records.
 
+Cached results are stored locally as `zostats-cache.json` in the Zotero data
+directory. Entries expire after seven days, and the cache retains at most 100
+papers. The refresh button bypasses the cache and replaces the stored result.
+
 ## Install
 
-1. Build the package with `make` or download `zostats-1.0.4.xpi`.
+1. Build the package with `make` or download `zostats-1.1.0.xpi`.
 2. In Zotero, open **Tools → Plugins**.
 3. Choose **Install Plugin From File…** from the gear menu.
 4. Select the `.xpi` file.
@@ -34,7 +38,7 @@ make test
 make package
 ```
 
-The package is written to `dist/zostats-1.0.4.xpi`.
+The package is written to `dist/zostats-1.1.0.xpi`.
 
 ## Privacy
 

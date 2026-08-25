@@ -2,7 +2,9 @@ var ZoStats = (() => {
   "use strict";
 
   const API_ROOT = "https://api.semanticscholar.org/graph/v1";
-  const CACHE_LIFETIME = 30 * 60 * 1000;
+  const CACHE_SCHEMA_VERSION = 1;
+  const CACHE_LIFETIME = 7 * 24 * 60 * 60 * 1000;
+  const MAX_CACHE_ENTRIES = 100;
   const CITATION_FETCH_LIMIT = 1000;
   const CITING_LIST_LIMIT = 100;
   const PAPER_FIELDS = [
@@ -32,6 +34,9 @@ var ZoStats = (() => {
   let pluginID;
   let rootURI;
   let registeredPaneID;
+  let cachePath;
+  let cacheLoadPromise = Promise.resolve();
+  let cacheWritePromise = Promise.resolve();
   const cache = new Map();
   const renderTokens = new WeakMap();
 
@@ -99,6 +104,63 @@ var ZoStats = (() => {
 
   function isSupportedItem(item) {
     return Boolean(item?.isRegularItem?.() && safeField(item, "title"));
+  }
+
+  function selectCacheEntries(entries, now = Date.now(), maximum = MAX_CACHE_ENTRIES) {
+    return entries
+      .filter(([, entry]) => entry?.expires > now && entry?.value)
+      .sort((a, b) => (b[1].lastAccessed || 0) - (a[1].lastAccessed || 0))
+      .slice(0, maximum);
+  }
+
+  function pruneCache(now = Date.now(), maximum = MAX_CACHE_ENTRIES) {
+    const retained = selectCacheEntries([...cache.entries()], now, maximum);
+    cache.clear();
+    for (const [key, entry] of retained) cache.set(key, entry);
+    return retained.length;
+  }
+
+  async function loadPersistentCache() {
+    try {
+      if (!cachePath || !(await IOUtils.exists(cachePath))) return;
+      const stored = await IOUtils.readJSON(cachePath);
+      if (stored?.version !== CACHE_SCHEMA_VERSION || !Array.isArray(stored.entries)) return;
+      for (const entry of stored.entries) {
+        if (typeof entry?.key !== "string") continue;
+        cache.set(entry.key, {
+          expires: entry.expires,
+          lastAccessed: entry.lastAccessed,
+          value: entry.value
+        });
+      }
+      const count = pruneCache();
+      debug(`Loaded ${count} cached paper metric${count === 1 ? "" : "s"}`);
+    }
+    catch (error) {
+      debug(`Could not read persistent cache: ${error}`);
+    }
+  }
+
+  function savePersistentCache() {
+    cacheWritePromise = cacheWritePromise.then(async () => {
+      try {
+        if (!cachePath) return;
+        pruneCache();
+        const entries = [...cache.entries()].map(([key, entry]) => ({ key, ...entry }));
+        const tmpPath = `${cachePath}.tmp`;
+        await IOUtils.remove(tmpPath, { ignoreAbsent: true });
+        await IOUtils.writeJSON(
+          cachePath,
+          { version: CACHE_SCHEMA_VERSION, entries },
+          { tmpPath }
+        );
+      }
+      catch (error) {
+        // A cache write must never prevent fresh metrics from being displayed.
+        debug(`Could not write persistent cache: ${error}`);
+      }
+    });
+    return cacheWritePromise;
   }
 
   async function requestJSON(url) {
@@ -227,16 +289,26 @@ var ZoStats = (() => {
   }
 
   async function getStats(item, force = false) {
+    await cacheLoadPromise;
     const identifier = extractIdentifiers(item);
     if (!identifier) throw new Error("This item needs a title or scholarly identifier.");
     const cached = cache.get(identifier.cacheKey);
-    if (!force && cached && cached.expires > Date.now()) return cached.value;
+    if (!force && cached && cached.expires > Date.now()) {
+      cached.lastAccessed = Date.now();
+      return cached.value;
+    }
 
     const paper = await findPaper(identifier);
     const citations = await fetchCitations(paper.paperId);
     const value = summarize(paper, citations);
     value.matchSource = identifier.source;
-    cache.set(identifier.cacheKey, { expires: Date.now() + CACHE_LIFETIME, value });
+    value.fetchedAt = Date.now();
+    cache.set(identifier.cacheKey, {
+      expires: Date.now() + CACHE_LIFETIME,
+      lastAccessed: Date.now(),
+      value
+    });
+    await savePersistentCache();
     return value;
   }
 
@@ -453,6 +525,7 @@ var ZoStats = (() => {
 
     const coverage = [];
     coverage.push(`Matched by ${stats.matchSource}`);
+    if (stats.fetchedAt) coverage.push(`updated ${new Date(stats.fetchedAt).toLocaleString()}`);
     coverage.push(`${formatNumber(stats.records.length)} citing records retrieved`);
     if (stats.unknownYear) coverage.push(`${formatNumber(stats.unknownYear)} without a year`);
     if (stats.truncated) coverage.push(`yearly chart is limited to the first ${CITATION_FETCH_LIMIT} records`);
@@ -499,6 +572,8 @@ var ZoStats = (() => {
   function init(options) {
     pluginID = options.pluginID;
     rootURI = options.rootURI;
+    cachePath = PathUtils.join(Zotero.DataDirectory.dir, "zostats-cache.json");
+    cacheLoadPromise = loadPersistentCache();
     registeredPaneID = Zotero.ItemPaneManager.registerSection({
       paneID: "paper-statistics",
       pluginID,
@@ -566,7 +641,8 @@ var ZoStats = (() => {
       normalizeTitle,
       extractIdentifiers,
       summarize,
-      isSupportedItem
+      isSupportedItem,
+      selectCacheEntries
     }
   };
 })();

@@ -102,20 +102,33 @@ var ZoStats = (() => {
   }
 
   async function requestJSON(url) {
+    let timeoutID;
     try {
-      const response = await Zotero.HTTP.request("GET", url, {
-        responseType: "json",
-        timeout: 30000,
-        headers: { Accept: "application/json" }
-      });
+      const response = await Promise.race([
+        Zotero.HTTP.request("GET", url, {
+          responseType: "json",
+          timeout: 30000,
+          headers: { Accept: "application/json" }
+        }),
+        new Promise((_, reject) => {
+          timeoutID = setTimeout(
+            () => reject(new Error("Citation service request timed out.")),
+            35000
+          );
+        })
+      ]);
       return response.response;
     }
     catch (error) {
+      if (error?.message === "Citation service request timed out.") throw error;
       const status = error?.status || error?.xmlhttp?.status;
       if (status === 404) throw new Error("No matching paper was found in Semantic Scholar.");
       if (status === 429) throw new Error("Semantic Scholar is rate-limiting requests. Try again in a minute.");
       if (status) throw new Error(`Citation service returned HTTP ${status}.`);
       throw new Error("Could not contact Semantic Scholar. Check your internet connection.");
+    }
+    finally {
+      if (timeoutID) clearTimeout(timeoutID);
     }
   }
 
@@ -465,13 +478,15 @@ var ZoStats = (() => {
     const { doc, body, item, setSectionSummary } = props;
     const token = {};
     renderTokens.set(body, token);
-    renderLoading(doc, body);
-    setSectionSummary?.("Loading…");
     try {
+      renderLoading(doc, body);
+      setSectionSummary?.("Loading…");
+      debug(`Loading metrics for item ${item?.id || "unknown"}`);
       const stats = await getStats(item, force);
       if (renderTokens.get(body) !== token) return;
       renderStats(doc, body, stats);
       setSectionSummary?.(`${formatNumber(stats.paper.citationCount)} citations`);
+      debug(`Loaded metrics for item ${item?.id || "unknown"}`);
     }
     catch (error) {
       if (renderTokens.get(body) !== token) return;
@@ -502,8 +517,13 @@ var ZoStats = (() => {
         onClick: props => loadAndRender(props, true)
       }],
       onItemChange: ({ item, setEnabled }) => setEnabled(isSupportedItem(item)),
-      onRender: ({ doc, body }) => renderLoading(doc, body),
-      onAsyncRender: props => loadAndRender(props)
+      onRender: props => {
+        // Zotero 10 may defer onAsyncRender indefinitely for custom sections
+        // that begin outside the visible item-pane viewport. Starting the
+        // promise here guarantees that an opened section cannot remain on its
+        // synchronous placeholder.
+        loadAndRender(props);
+      }
     });
     if (!registeredPaneID) throw new Error("Could not register the ZoStats item-pane section");
   }

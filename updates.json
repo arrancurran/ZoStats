@@ -3,9 +3,9 @@
     "zostats@arrancurran.github.io": {
       "updates": [
         {
-          "version": "1.0.1",
-          "update_link": "https://github.com/arrancurran/ZoStats/releases/download/v1.0.1/zostats-1.0.1.xpi",
-          "update_hash": "sha256:67d0df986529cfa819647c6aa141d5371986961397406d2f65d14b587e0f2f58",
+          "version": "1.0.2",
+          "update_link": "https://github.com/arrancurran/ZoStats/releases/download/v1.0.2/zostats-1.0.2.xpi",
+          "update_hash": "sha256:e7aabc6fd870a90330e2ba15b08a700777cf5f15d84202652878ca642f024fa4",
           "applications": {
             "zotero": {
               "strict_min_version": "7.0",

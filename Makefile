@@ -1,5 +1,5 @@
 NAME := zostats
-VERSION := 1.0.1
+VERSION := 1.0.2
 XPI := dist/$(NAME)-$(VERSION).xpi
 FILES := manifest.json bootstrap.js zostats.js locale icons LICENSE README.md
 

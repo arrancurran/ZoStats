@@ -132,6 +132,39 @@ test("retries Semantic Scholar rate limits", async () => {
   assert.deepEqual(waits, [1500, 3000]);
 });
 
+test("uses an optional Semantic Scholar API key without requiring one", () => {
+  const preferences = new Map();
+  const context = vm.createContext({
+    console,
+    Intl,
+    Map,
+    Date,
+    setTimeout,
+    clearTimeout,
+    Services: {
+      prefs: {
+        getStringPref: (name, fallback) => preferences.get(name) ?? fallback
+      }
+    }
+  });
+  vm.runInContext(fs.readFileSync("zostats.js", "utf8"), context);
+  assert.deepEqual({ ...context.ZoStats._test.requestHeaders() }, { Accept: "application/json" });
+
+  preferences.set("extensions.zostats.semanticScholarApiKey", "  secret-key  ");
+  assert.deepEqual(
+    { ...context.ZoStats._test.requestHeaders() },
+    { Accept: "application/json", "x-api-key": "secret-key" }
+  );
+});
+
+test("registers a ZoStats preferences pane", () => {
+  const source = fs.readFileSync("bootstrap.js", "utf8");
+  assert.match(source, /Zotero\.PreferencePanes\?\.register/);
+  assert.match(source, /id:\s*"zostats-preferences"/);
+  assert.match(source, /src:\s*rootURI \+ "preferences\.xhtml"/);
+  assert.match(source, /scripts:\s*\[rootURI \+ "preferences\.js"\]/);
+});
+
 test("injects and removes the Metrics localization resource", () => {
   const context = vm.createContext({ console, Intl, Map, Date });
   vm.runInContext(fs.readFileSync("zostats.js", "utf8"), context);

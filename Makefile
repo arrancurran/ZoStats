@@ -1,7 +1,7 @@
 NAME := zostats
-VERSION := 1.1.1
+VERSION := 1.2.0
 XPI := dist/$(NAME)-$(VERSION).xpi
-FILES := manifest.json bootstrap.js zostats.js locale icons LICENSE README.md
+FILES := manifest.json bootstrap.js zostats.js preferences.xhtml preferences.js locale icons LICENSE README.md
 
 .PHONY: all package test verify clean
 
@@ -17,7 +17,9 @@ $(XPI): $(shell find $(FILES) -type f)
 test:
 	node --check bootstrap.js
 	node --check zostats.js
+	node --check preferences.js
 	node --test tests/zostats.test.js
+	python3 -c 'import xml.etree.ElementTree as ET; ET.parse("preferences.xhtml")'
 	python3 -m json.tool manifest.json >/dev/null
 	python3 -m json.tool updates.json >/dev/null
 

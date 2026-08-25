@@ -2,6 +2,7 @@ var ZoStats = (() => {
   "use strict";
 
   const API_ROOT = "https://api.semanticscholar.org/graph/v1";
+  const API_KEY_PREF = "extensions.zostats.semanticScholarApiKey";
   const CACHE_SCHEMA_VERSION = 2;
   const CACHE_LIFETIME = 7 * 24 * 60 * 60 * 1000;
   const MAX_CACHE_ENTRIES = 100;
@@ -113,6 +114,22 @@ var ZoStats = (() => {
       : new Promise(resolve => setTimeout(resolve, milliseconds));
   }
 
+  function getAPIKey() {
+    try {
+      return String(Services.prefs.getStringPref(API_KEY_PREF, "") || "").trim();
+    }
+    catch (_) {
+      return "";
+    }
+  }
+
+  function requestHeaders() {
+    const headers = { Accept: "application/json" };
+    const apiKey = getAPIKey();
+    if (apiKey) headers["x-api-key"] = apiKey;
+    return headers;
+  }
+
   function extractPublicationYear(item) {
     const date = String(safeField(item, "date"));
     const match = date.match(/(?:^|\D)((?:1[5-9]|20|21)\d{2})(?:\D|$)/);
@@ -185,7 +202,7 @@ var ZoStats = (() => {
           Zotero.HTTP.request("GET", url, {
             responseType: "json",
             timeout: 30000,
-            headers: { Accept: "application/json" }
+            headers: requestHeaders()
           }),
           new Promise((_, reject) => {
             timeoutID = setTimeout(
@@ -695,6 +712,8 @@ var ZoStats = (() => {
       normalizeTitle,
       extractIdentifiers,
       extractPublicationYear,
+      getAPIKey,
+      requestHeaders,
       requestJSON,
       fetchCitations,
       summarize,

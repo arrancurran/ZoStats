@@ -10,6 +10,16 @@ function install() {
 
 async function startup({ id, rootURI }) {
   await Zotero.initializationPromise;
+  if (Zotero.PreferencePanes?.register) {
+    Zotero.PreferencePanes.register({
+      pluginID: id,
+      id: "zostats-preferences",
+      label: "ZoStats",
+      image: rootURI + "icons/stats.svg",
+      src: rootURI + "preferences.xhtml",
+      scripts: [rootURI + "preferences.js"]
+    });
+  }
   Services.scriptloader.loadSubScript(rootURI + "zostats.js");
   ZoStats.addToAllWindows();
   ZoStats.init({ pluginID: id, rootURI });

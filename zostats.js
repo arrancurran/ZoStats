@@ -528,17 +528,39 @@ var ZoStats = (() => {
     if (!registeredPaneID) throw new Error("Could not register the ZoStats item-pane section");
   }
 
+  function addToWindow(window) {
+    window?.MozXULElement?.insertFTLIfNeeded("zostats.ftl");
+  }
+
+  function removeFromWindow(window) {
+    window?.document
+      ?.querySelectorAll?.('link[rel="localization"][href="zostats.ftl"]')
+      ?.forEach(link => link.remove());
+  }
+
+  function addToAllWindows() {
+    for (const window of Zotero.getMainWindows()) addToWindow(window);
+  }
+
+  function removeFromAllWindows() {
+    for (const window of Zotero.getMainWindows()) removeFromWindow(window);
+  }
+
   function shutdown() {
     if (registeredPaneID) {
       Zotero.ItemPaneManager.unregisterSection(registeredPaneID);
       registeredPaneID = undefined;
     }
+    removeFromAllWindows();
     cache.clear();
   }
 
   return {
     init,
     shutdown,
+    addToWindow,
+    removeFromWindow,
+    addToAllWindows,
     _test: {
       normalizeDOI,
       normalizeTitle,

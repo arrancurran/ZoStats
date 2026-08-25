@@ -11,13 +11,18 @@ function install() {
 async function startup({ id, rootURI }) {
   await Zotero.initializationPromise;
   Services.scriptloader.loadSubScript(rootURI + "zostats.js");
+  ZoStats.addToAllWindows();
   ZoStats.init({ pluginID: id, rootURI });
   log("Started");
 }
 
-function onMainWindowLoad() {}
+function onMainWindowLoad({ window }) {
+  ZoStats?.addToWindow(window);
+}
 
-function onMainWindowUnload() {}
+function onMainWindowUnload({ window }) {
+  ZoStats?.removeFromWindow(window);
+}
 
 function shutdown() {
   if (ZoStats) {

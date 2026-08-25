@@ -58,3 +58,26 @@ test("only enables statistics for titled regular items", () => {
   assert.equal(api.isSupportedItem(item({ title: "" })), false);
   assert.equal(api.isSupportedItem(item({ title: "Attachment" }, false)), false);
 });
+
+test("injects and removes the Metrics localization resource", () => {
+  const context = vm.createContext({ console, Intl, Map, Date });
+  vm.runInContext(fs.readFileSync("zostats.js", "utf8"), context);
+  let inserted;
+  let removed = 0;
+  const window = {
+    MozXULElement: {
+      insertFTLIfNeeded: name => { inserted = name; }
+    },
+    document: {
+      querySelectorAll: selector => {
+        assert.equal(selector, 'link[rel="localization"][href="zostats.ftl"]');
+        return [{ remove: () => removed++ }];
+      }
+    }
+  };
+
+  context.ZoStats.addToWindow(window);
+  context.ZoStats.removeFromWindow(window);
+  assert.equal(inserted, "zostats.ftl");
+  assert.equal(removed, 1);
+});

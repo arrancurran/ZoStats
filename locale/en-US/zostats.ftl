@@ -1,2 +1,8 @@
-zostats-item-pane-header = Metrics
-zostats-refresh-button = Refresh citation statistics
+zostats-item-pane-header =
+    .label = Metrics
+
+zostats-item-pane-sidenav =
+    .tooltiptext = Metrics
+
+zostats-refresh-button =
+    .tooltiptext = Refresh citation statistics

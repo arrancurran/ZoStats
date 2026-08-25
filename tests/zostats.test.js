@@ -81,3 +81,11 @@ test("injects and removes the Metrics localization resource", () => {
   assert.equal(inserted, "zostats.ftl");
   assert.equal(removed, 1);
 });
+
+test("localizes the collapsible header and sidenav through attributes", () => {
+  const ftl = fs.readFileSync("locale/en-US/zostats.ftl", "utf8");
+  assert.match(ftl, /zostats-item-pane-header\s*=\s*\n\s+\.label\s*=\s*Metrics/);
+  assert.match(ftl, /zostats-item-pane-sidenav\s*=\s*\n\s+\.tooltiptext\s*=\s*Metrics/);
+  assert.match(ftl, /zostats-refresh-button\s*=\s*\n\s+\.tooltiptext\s*=\s*Refresh citation statistics/);
+  assert.doesNotMatch(ftl, /zostats-item-pane-header\s*=\s*Metrics/);
+});

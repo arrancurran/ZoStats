@@ -507,7 +507,7 @@ var ZoStats = (() => {
         icon: rootURI + "icons/stats.svg"
       },
       sidenav: {
-        l10nID: "zostats-item-pane-header",
+        l10nID: "zostats-item-pane-sidenav",
         icon: rootURI + "icons/stats.svg"
       },
       sectionButtons: [{

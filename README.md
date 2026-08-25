@@ -20,7 +20,7 @@ yearly graph and citing-work analysis are limited to the first 1,000 records.
 
 ## Install
 
-1. Build the package with `make` or download `zostats-1.0.3.xpi`.
+1. Build the package with `make` or download `zostats-1.0.4.xpi`.
 2. In Zotero, open **Tools → Plugins**.
 3. Choose **Install Plugin From File…** from the gear menu.
 4. Select the `.xpi` file.
@@ -34,7 +34,7 @@ make test
 make package
 ```
 
-The package is written to `dist/zostats-1.0.3.xpi`.
+The package is written to `dist/zostats-1.0.4.xpi`.
 
 ## Privacy
 

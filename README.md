@@ -1,6 +1,6 @@
 # ZoStats
 
-ZoStats adds a **Paper Statistics** section to Zotero's item pane. Select a
+ZoStats adds a **Metrics** section to Zotero's item pane. Select a
 paper to see its citation history and the works that cite it.
 
 ## Features
@@ -20,7 +20,7 @@ yearly graph and citing-work analysis are limited to the first 1,000 records.
 
 ## Install
 
-1. Build the package with `make` or download `zostats-1.0.0.xpi`.
+1. Build the package with `make` or download `zostats-1.0.1.xpi`.
 2. In Zotero, open **Tools → Plugins**.
 3. Choose **Install Plugin From File…** from the gear menu.
 4. Select the `.xpi` file.
@@ -34,10 +34,10 @@ make test
 make package
 ```
 
-The package is written to `dist/zostats-1.0.0.xpi`.
+The package is written to `dist/zostats-1.0.1.xpi`.
 
 ## Privacy
 
-When the Paper Statistics section loads, ZoStats sends the selected item's DOI,
+When the Metrics section loads, ZoStats sends the selected item's DOI,
 PMID, arXiv ID, or title to Semantic Scholar. It does not transmit notes,
 attachments, collections, tags, or other library data.

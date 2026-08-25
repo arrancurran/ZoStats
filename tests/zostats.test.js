@@ -4,7 +4,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 function loadTestAPI() {
-  const context = vm.createContext({ console, Intl, Map, Date });
+  const context = vm.createContext({ console, Intl, Map, Date, setTimeout, clearTimeout });
   vm.runInContext(fs.readFileSync("zostats.js", "utf8"), context);
   return context.ZoStats._test;
 }
@@ -41,8 +41,10 @@ test("summarizes yearly citations and sorts citing works", () => {
         { isInfluential: false, citingPaper: { paperId: "c", title: "Also newer", year: 2024, venue: "B", citationCount: 2 } },
         { isInfluential: false, citingPaper: { paperId: "d", title: "Unknown year", year: null, citationCount: 0 } }
       ]
-    }
+    },
+    2020
   );
+  assert.equal(summary.yearly[0].year, 2020);
   assert.equal(summary.yearly.find(point => point.year === 2023).count, 1);
   assert.equal(summary.yearly.find(point => point.year === 2024).count, 2);
   assert.deepEqual({ ...summary.peak }, { year: 2024, count: 2 });
@@ -50,6 +52,7 @@ test("summarizes yearly citations and sorts citing works", () => {
   assert.equal(summary.records[0].title, "Newer");
   assert.equal(summary.topVenues[0].venue, "A");
   assert.equal(summary.topVenues[0].count, 2);
+  assert.equal(summary.retrievedCount, 4);
 });
 
 test("only enables statistics for titled regular items", () => {
@@ -57,6 +60,76 @@ test("only enables statistics for titled regular items", () => {
   assert.equal(api.isSupportedItem(item({ title: "Paper" })), true);
   assert.equal(api.isSupportedItem(item({ title: "" })), false);
   assert.equal(api.isSupportedItem(item({ title: "Attachment" }, false)), false);
+});
+
+test("uses the Zotero item publication year", () => {
+  const api = loadTestAPI();
+  assert.equal(api.extractPublicationYear(item({ date: "Spring 1940" })), 1940);
+  assert.equal(api.extractPublicationYear(item({ date: "2021-08-12" })), 2021);
+  assert.equal(api.extractPublicationYear(item({ date: "forthcoming" })), null);
+});
+
+test("paginates through the complete citation history", async () => {
+  const requests = [];
+  const pages = [
+    { next: 2, data: [{ citingPaper: { paperId: "a", title: "A", year: 2024 } }, { citingPaper: { paperId: "b", title: "B", year: 2023 } }] },
+    { next: 3, data: [{ citingPaper: { paperId: "c", title: "C", year: 2000 } }] },
+    { next: null, data: [{ citingPaper: { paperId: "d", title: "D", year: 1980 } }] }
+  ];
+  const context = vm.createContext({
+    console,
+    Intl,
+    Map,
+    Date,
+    setTimeout,
+    clearTimeout,
+    Zotero: {
+      HTTP: {
+        request: async (_method, url) => {
+          requests.push(url);
+          return { response: pages.shift() };
+        }
+      },
+      Promise: { delay: async () => {} },
+      debug() {}
+    }
+  });
+  vm.runInContext(fs.readFileSync("zostats.js", "utf8"), context);
+  const result = await context.ZoStats._test.fetchCitations("paper-id");
+  assert.equal(result.citations.length, 4);
+  assert.equal(result.next, null);
+  assert.equal(requests.length, 3);
+  assert.match(requests[1], /offset=2/);
+  assert.match(requests[2], /offset=3/);
+});
+
+test("retries Semantic Scholar rate limits", async () => {
+  let attempts = 0;
+  const waits = [];
+  const context = vm.createContext({
+    console,
+    Intl,
+    Map,
+    Date,
+    setTimeout,
+    clearTimeout,
+    Zotero: {
+      HTTP: {
+        request: async () => {
+          attempts++;
+          if (attempts < 3) throw { status: 429 };
+          return { response: { ok: true } };
+        }
+      },
+      Promise: { delay: async milliseconds => waits.push(milliseconds) },
+      debug() {}
+    }
+  });
+  vm.runInContext(fs.readFileSync("zostats.js", "utf8"), context);
+  const result = await context.ZoStats._test.requestJSON("https://example.test");
+  assert.equal(result.ok, true);
+  assert.equal(attempts, 3);
+  assert.deepEqual(waits, [1500, 3000]);
 });
 
 test("injects and removes the Metrics localization resource", () => {

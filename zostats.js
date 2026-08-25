@@ -2,10 +2,11 @@ var ZoStats = (() => {
   "use strict";
 
   const API_ROOT = "https://api.semanticscholar.org/graph/v1";
-  const CACHE_SCHEMA_VERSION = 1;
+  const CACHE_SCHEMA_VERSION = 2;
   const CACHE_LIFETIME = 7 * 24 * 60 * 60 * 1000;
   const MAX_CACHE_ENTRIES = 100;
-  const CITATION_FETCH_LIMIT = 1000;
+  const CITATION_PAGE_SIZE = 1000;
+  const CITATION_FETCH_LIMIT = 10000;
   const CITING_LIST_LIMIT = 100;
   const PAPER_FIELDS = [
     "title",
@@ -106,6 +107,18 @@ var ZoStats = (() => {
     return Boolean(item?.isRegularItem?.() && safeField(item, "title"));
   }
 
+  function delay(milliseconds) {
+    return Zotero?.Promise?.delay
+      ? Zotero.Promise.delay(milliseconds)
+      : new Promise(resolve => setTimeout(resolve, milliseconds));
+  }
+
+  function extractPublicationYear(item) {
+    const date = String(safeField(item, "date"));
+    const match = date.match(/(?:^|\D)((?:1[5-9]|20|21)\d{2})(?:\D|$)/);
+    return match ? Number(match[1]) : null;
+  }
+
   function selectCacheEntries(entries, now = Date.now(), maximum = MAX_CACHE_ENTRIES) {
     return entries
       .filter(([, entry]) => entry?.expires > now && entry?.value)
@@ -164,34 +177,47 @@ var ZoStats = (() => {
   }
 
   async function requestJSON(url) {
-    let timeoutID;
-    try {
-      const response = await Promise.race([
-        Zotero.HTTP.request("GET", url, {
-          responseType: "json",
-          timeout: 30000,
-          headers: { Accept: "application/json" }
-        }),
-        new Promise((_, reject) => {
-          timeoutID = setTimeout(
-            () => reject(new Error("Citation service request timed out.")),
-            35000
-          );
-        })
-      ]);
-      return response.response;
+    const maximumAttempts = 5;
+    for (let attempt = 0; attempt < maximumAttempts; attempt++) {
+      let timeoutID;
+      try {
+        const response = await Promise.race([
+          Zotero.HTTP.request("GET", url, {
+            responseType: "json",
+            timeout: 30000,
+            headers: { Accept: "application/json" }
+          }),
+          new Promise((_, reject) => {
+            timeoutID = setTimeout(
+              () => reject(new Error("Citation service request timed out.")),
+              35000
+            );
+          })
+        ]);
+        return response.response;
+      }
+      catch (error) {
+        if (error?.message === "Citation service request timed out.") throw error;
+        const status = error?.status || error?.xmlhttp?.status;
+        if (status === 429 && attempt < maximumAttempts - 1) {
+          const retryAfter = Number(error?.xmlhttp?.getResponseHeader?.("Retry-After"));
+          const wait = Number.isFinite(retryAfter) && retryAfter > 0
+            ? retryAfter * 1000
+            : 1500 * (2 ** attempt);
+          debug(`Citation service rate limit; retrying in ${wait} ms`);
+          await delay(wait);
+          continue;
+        }
+        if (status === 404) throw new Error("No matching paper was found in Semantic Scholar.");
+        if (status === 429) throw new Error("Semantic Scholar is rate-limiting requests. Try again in a minute.");
+        if (status) throw new Error(`Citation service returned HTTP ${status}.`);
+        throw new Error("Could not contact Semantic Scholar. Check your internet connection.");
+      }
+      finally {
+        if (timeoutID) clearTimeout(timeoutID);
+      }
     }
-    catch (error) {
-      if (error?.message === "Citation service request timed out.") throw error;
-      const status = error?.status || error?.xmlhttp?.status;
-      if (status === 404) throw new Error("No matching paper was found in Semantic Scholar.");
-      if (status === 429) throw new Error("Semantic Scholar is rate-limiting requests. Try again in a minute.");
-      if (status) throw new Error(`Citation service returned HTTP ${status}.`);
-      throw new Error("Could not contact Semantic Scholar. Check your internet connection.");
-    }
-    finally {
-      if (timeoutID) clearTimeout(timeoutID);
-    }
+    throw new Error("Citation service request failed.");
   }
 
   async function findPaper(identifier) {
@@ -211,25 +237,47 @@ var ZoStats = (() => {
   }
 
   async function fetchCitations(paperID) {
-    const url = `${API_ROOT}/paper/${encodeURIComponent(paperID)}/citations?limit=${CITATION_FETCH_LIMIT}&fields=${encodeURIComponent(CITATION_FIELDS)}`;
-    const result = await requestJSON(url);
+    const citations = [];
+    let offset = 0;
+    let next = 0;
+
+    while (next !== null && citations.length < CITATION_FETCH_LIMIT) {
+      const limit = Math.min(CITATION_PAGE_SIZE, CITATION_FETCH_LIMIT - citations.length);
+      const url = `${API_ROOT}/paper/${encodeURIComponent(paperID)}/citations?offset=${offset}&limit=${limit}&fields=${encodeURIComponent(CITATION_FIELDS)}`;
+      const result = await requestJSON(url);
+      const page = result?.data || [];
+      citations.push(...page);
+
+      const candidate = result?.next;
+      if (candidate === null || candidate === undefined || candidate <= offset || !page.length) {
+        next = null;
+      }
+      else {
+        next = candidate;
+        offset = candidate;
+        // Stay within the documented introductory authenticated rate and
+        // avoid bursts on the shared unauthenticated pool.
+        await delay(1100);
+      }
+    }
+
     return {
-      citations: result?.data || [],
-      next: result?.next ?? null
+      citations,
+      next
     };
   }
 
-  function summarize(paper, citationResult) {
-    const records = citationResult.citations
-      .map(citation => ({
-        ...(citation.citingPaper || {}),
-        isInfluential: Boolean(citation.isInfluential)
-      }))
-      .filter(work => work.paperId && work.title);
+  function summarize(paper, citationResult, publicationYear = paper.year) {
+    const citingPapers = citationResult.citations
+      .map(citation => citation.citingPaper
+        ? { ...citation.citingPaper, isInfluential: Boolean(citation.isInfluential) }
+        : null)
+      .filter(Boolean);
+    const allRecords = citingPapers.filter(work => work.paperId && work.title);
 
     const byYear = new Map();
-    let unknownYear = 0;
-    for (const work of records) {
+    let unknownYear = citationResult.citations.length - citingPapers.length;
+    for (const work of citingPapers) {
       if (Number.isInteger(work.year)) {
         byYear.set(work.year, (byYear.get(work.year) || 0) + 1);
       }
@@ -241,7 +289,9 @@ var ZoStats = (() => {
     const knownYears = [...byYear.keys()].sort((a, b) => a - b);
     let firstYear = knownYears[0];
     let lastYear = knownYears.at(-1);
-    if (Number.isInteger(paper.year)) firstYear = Math.min(firstYear ?? paper.year, paper.year);
+    if (Number.isInteger(publicationYear)) {
+      firstYear = Math.min(firstYear ?? publicationYear, publicationYear);
+    }
     if (firstYear !== undefined) lastYear = Math.max(lastYear ?? firstYear, new Date().getFullYear());
 
     const yearly = [];
@@ -258,16 +308,18 @@ var ZoStats = (() => {
     const currentYear = new Date().getFullYear();
     const recentYears = [currentYear - 2, currentYear - 1, currentYear];
     const recentAverage = recentYears.reduce((sum, year) => sum + (byYear.get(year) || 0), 0) / recentYears.length;
-    const activeYears = Number.isInteger(paper.year) ? Math.max(1, currentYear - paper.year + 1) : Math.max(1, knownYears.length);
+    const activeYears = Number.isInteger(publicationYear)
+      ? Math.max(1, currentYear - publicationYear + 1)
+      : Math.max(1, knownYears.length);
 
-    records.sort((a, b) =>
+    allRecords.sort((a, b) =>
       (b.year || 0) - (a.year || 0)
       || (b.citationCount || 0) - (a.citationCount || 0)
       || a.title.localeCompare(b.title)
     );
 
     const venueCounts = new Map();
-    for (const work of records) {
+    for (const work of citingPapers) {
       if (work.venue) venueCounts.set(work.venue, (venueCounts.get(work.venue) || 0) + 1);
     }
     const topVenues = [...venueCounts.entries()]
@@ -277,14 +329,16 @@ var ZoStats = (() => {
 
     return {
       paper,
-      records,
+      records: allRecords.slice(0, CITING_LIST_LIMIT),
+      retrievedCount: citationResult.citations.length,
+      publicationYear,
       yearly,
       unknownYear,
       peak,
       recentAverage,
       citationsPerYear: (paper.citationCount || 0) / activeYears,
       topVenues,
-      truncated: citationResult.next !== null || (paper.citationCount || 0) > records.length
+      truncated: citationResult.next !== null || (paper.citationCount || 0) > citationResult.citations.length
     };
   }
 
@@ -300,7 +354,7 @@ var ZoStats = (() => {
 
     const paper = await findPaper(identifier);
     const citations = await fetchCitations(paper.paperId);
-    const value = summarize(paper, citations);
+    const value = summarize(paper, citations, extractPublicationYear(item) || paper.year);
     value.matchSource = identifier.source;
     value.fetchedAt = Date.now();
     cache.set(identifier.cacheKey, {
@@ -526,7 +580,7 @@ var ZoStats = (() => {
     const coverage = [];
     coverage.push(`Matched by ${stats.matchSource}`);
     if (stats.fetchedAt) coverage.push(`updated ${new Date(stats.fetchedAt).toLocaleString()}`);
-    coverage.push(`${formatNumber(stats.records.length)} citing records retrieved`);
+    coverage.push(`${formatNumber(stats.retrievedCount)} citing records retrieved`);
     if (stats.unknownYear) coverage.push(`${formatNumber(stats.unknownYear)} without a year`);
     if (stats.truncated) coverage.push(`yearly chart is limited to the first ${CITATION_FETCH_LIMIT} records`);
     root.append(element(doc, "div", "zostats-coverage", coverage.join(" · ")));
@@ -640,6 +694,9 @@ var ZoStats = (() => {
       normalizeDOI,
       normalizeTitle,
       extractIdentifiers,
+      extractPublicationYear,
+      requestJSON,
+      fetchCitations,
       summarize,
       isSupportedItem,
       selectCacheEntries

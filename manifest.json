@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "ZoStats",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Shows citation statistics and citing articles for the selected Zotero item.",
   "homepage_url": "https://github.com/arrancurran/ZoStats",
   "applications": {
